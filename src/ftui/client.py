@@ -2,8 +2,8 @@ import asyncio
 import json
 import os
 import shutil
-from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional, Tuple
 
 
 @dataclass(frozen=True)
@@ -19,6 +19,8 @@ class Machine:
     ram: str
     has_http: bool
     created_at: str
+    # The machine's config.env (non-secret), sorted. Used by the inspect panel.
+    env: Tuple[Tuple[str, str], ...] = field(default=(), compare=False)
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "Machine":
@@ -45,6 +47,9 @@ class Machine:
             ram=ram_str,
             has_http=any(s.get("protocol") == "tcp" for s in services),
             created_at=data.get("created_at", "")[:19].replace("T", " "),
+            env=tuple(sorted(
+                (str(k), "" if v is None else str(v)) for k, v in (config.get("env") or {}).items()
+            )),
         )
 
 
@@ -145,7 +150,8 @@ class FlyClient:
                         "image": "flyio/hellofly:latest",
                         "metadata": {"fly_process_group": "app"},
                         "guest": {"cpu_kind": "shared", "cpus": 1, "memory_mb": 256},
-                        "services": [{"protocol": "tcp"}]
+                        "services": [{"protocol": "tcp"}],
+                        "env": {"APP_ENV": "production", "LOG_LEVEL": "info", "PORT": "8080"},
                     }
                 },
                 {
@@ -158,7 +164,8 @@ class FlyClient:
                         "image": "flyio/hellofly:latest",
                         "metadata": {"fly_process_group": "worker"},
                         "guest": {"cpu_kind": "performance", "cpus": 2, "memory_mb": 1024},
-                        "services": []
+                        "services": [],
+                        "env": {"APP_ENV": "production", "LOG_LEVEL": "info", "QUEUE": "default"},
                     }
                 }
             ])

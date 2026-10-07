@@ -1,3 +1,4 @@
+# Deprecated: an older copy of ftui.client, kept so existing imports keep working.
 import json
 import asyncio
 import os

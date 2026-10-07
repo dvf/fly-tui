@@ -139,7 +139,11 @@ class MachineListScreen(Screen):
         Binding("ctrl+s", "start", "Start"),
         Binding("ctrl+x", "stop", "Stop"),
         Binding("ctrl+r", "restart", "Restart"),
+        Binding("c", "inspect", "Inspect"),
     ]
+
+    # Last machines listed; the inspect panel reads a machine's env from here.
+    machines: List[Machine] = []
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -191,6 +195,7 @@ class MachineListScreen(Screen):
 
         try:
             machines = await self.app.client.list_machines()
+            self.machines = machines
             
             # If the IDs and count match exactly, just update values to avoid flicker
             current_ids = [table.get_row_at(i)[1] for i in range(table.row_count)]
@@ -241,6 +246,26 @@ class MachineListScreen(Screen):
     def action_scale(self) -> None:
         self.app.push_screen(ScaleDialog())
 
+    def action_inspect(self) -> None:
+        """Read-only panel: config, env, secret names/digests, diff vs a sibling app."""
+        from ftui.inspect_screen import InspectScreen
+        from ftui.inspector import AppChoice, Inspector
+
+        if not self.query_one(DataTable).row_count:
+            self.app.notify("No machine selected")
+            return
+        mid = self.get_selected_id()
+        machine = next((m for m in self.machines if m.id == mid), None)
+        if machine is None:
+            return
+        name = getattr(self.app, "app_name", "")
+        if name in ("Loading...", "Unknown App"):
+            name = ""  # flyctl falls back to ./fly.toml
+        self.app.push_screen(InspectScreen(
+            AppChoice(name), machine.id, dict(machine.env),
+            Inspector(mock=self.app.client.mock), process_group=machine.process_group,
+        ))
+
     def action_ssh(self) -> None:
         if mid := self.get_selected_id():
             with self.app.suspend():
@@ -275,12 +300,17 @@ class FTUI(App):
 
     CSS_PATH = "styles.tcss"
 
-    def __init__(self, refresh_interval: int = 5):
+    def __init__(self, refresh_interval: int = 5, fleet_screen: Optional[Screen] = None):
         super().__init__()
         self.client = FlyClient(refresh_interval=refresh_interval)
         self.app_name: str = "Loading..."
+        # Multi-account view (ftui.fleet_screen); None keeps the single-app view.
+        self.fleet_screen = fleet_screen
 
     def on_mount(self) -> None:
+        if self.fleet_screen is not None:
+            self.push_screen(self.fleet_screen)
+            return
         # Show the dashboard immediately
         self.push_screen(MachineListScreen())
         self.run_worker(self.initialize_app_name())
